@@ -1,19 +1,13 @@
 import datetime
 import pandas as pd
+import random
 import sys
+import time
 import urllib.error
 import urllib.request
 
-def _demo(x: list=[0, ]):
-    if 0 in x:
-        URL = "https://quotes.toscrape.com/"
-        page = pagesource(URL)
-        print(page.splitlines()[:5])
+from tools.jobparser import JobParser
 
-    if 1 in x:
-        foo = {"a":[1,2,3], "b":["foo","bar","asd"]}
-        bar = pd.DataFrame(foo)
-        print(bar)
 
 def xprint(msg: str, level: str="INFO", logfile: str=None):
     """ Autoformat info, warning, error, etc. messages.
@@ -37,14 +31,11 @@ def xprint(msg: str, level: str="INFO", logfile: str=None):
         stream = sys.stderr
 
     fmsg = f"*** {level}: {msg}"
-    print(fancy, file=stream)
+    print(fmsg, file=stream)
 
     if logfile:
         with open(logfile, 'a') as f:
-            f.write(msg + "\n")
-
-def uusimmat_jkl():
-    URL = "https://duunitori.fi/tyopaikat/alue/jyvaskyla?order_by=date_posted"
+            f.write(fmsg + "\n")
 
 def pagesource(url: str) -> str:
     """Read page source from url
@@ -85,30 +76,42 @@ def pagesource(url: str) -> str:
     return page
 
 
-def jobinfo(html_src: str) -> list[dict]:
+def jobhandler() -> pd.DataFrame:
     """Uses html parser to extract job info from page source.
     
-    Args:
-        html_src: Html code to parse.
-    
     Returns:
-        list: A list of dictionaries containing job information.
+        pandas.DataFrame: Job details.
     ---
     """
-    return []
+    parser = JobParser()
+    url = "https://duunitori.fi/tyopaikat/alue/jyvaskyla?order_by=date_posted"
+    MAXPAGES = 30
+    i=0
+    while url:
+        html_src = pagesource(url)
+        parser.feed(html_src)
+        url = parser.nextpage
+        parser.nextpage = None
 
-def jobhandler(jobs: list[dict]) -> pd.DataFrame:
-    """Organizes job listings.
-    
-    Args:
-        jobs: A list of dictionaries containig job information.
-    
-    Returns:
-        pandas.DataFrame: Table of job listings.
-    ---
-    """
+        i+=1
+        if i < MAXPAGES:
+            r = abs(random.gauss(mu=0, sigma=4))
+            t = min(10, r)
+            time.sleep(1 + t)
+        else:
+            url=None
+            
 
+    jobs = pd.DataFrame(parser.alljobs)
+    parser.close()
+
+    return jobs
+    
 
 if __name__ == "__main__":
-    _demo()
+    jobs = jobhandler()
+    jobs.to_csv("jobs.csv", index=False)
+    jobs = pd.read_csv("jobs.csv")
+    # jobs = jobs.sort_values(by="category")
+    print(jobs.head(10))
     print(f"\N{goat}")
