@@ -30,6 +30,7 @@ class JobParser(HTMLParser):
             # data-job-slug="job-title-foobar-12345"
             title = job["title"].split('-')
             job["title"] = " ".join(title[:-2])
+            job["url"] = "https://duunitori.fi" + job["url"]
 
             for key,value in job.items():
                 self.alljobs[key].append(value)

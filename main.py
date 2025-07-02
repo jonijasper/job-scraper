@@ -11,6 +11,8 @@ import time
 import urllib.error
 import urllib.request
 
+from openpyxl.workbook.child import INVALID_TITLE_REGEX
+
 from tools.jobparser import JobParser
 
 
@@ -69,17 +71,16 @@ def pagesource(url: str) -> str:
             source_bytes = response.read()
 
     except urllib.error.HTTPError as e:
-        stdmsg(e.reason, level="ERROR (HTTP)")
+        xprint(e.reason, level="ERROR (HTTP)")
         return ""
 
     except urllib.error.URLError as e:
-        stdmsg(e.reason, level="ERROR (Connection)")
+        xprint(e.reason, level="ERROR (Connection)")
         return ""
 
     page = source_bytes.decode('utf-8', 'replace')
 
     return page
-
 
 def jobhandler() -> pd.DataFrame:
     """Uses html parser to extract job info from page source.
@@ -106,17 +107,50 @@ def jobhandler() -> pd.DataFrame:
         else:
             url=None
             
-
     jobs = pd.DataFrame(parser.alljobs)
     parser.close()
 
     return jobs
+
+def refresh_results():
+    jobs = jobhandler()
+    jobs.to_csv("jobs.csv", index=False)
+
+def get_blacklist() -> dict:
+    blacklist = {}
+    with open(".blacklist.dat", 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('#'):
+                name = line[1:]
+                blacklist[name] = set()
+            elif line:
+                blacklist[name].add(line.lower())
+
+    return blacklist
+
+def filter(df: pd.DataFrame):
+    blacklist = get_blacklist()
+    x = ~df["category"].str.lower().isin(blacklist["categories"])
+    y = ~df["company"].str.lower().isin(blacklist["companies"])
+    mask = x & y
+
+    return mask
     
 
 if __name__ == "__main__":
-    jobs = jobhandler()
-    jobs.to_csv("jobs.csv", index=False)
+    # refresh_results()
     jobs = pd.read_csv("jobs.csv")
-    # jobs = jobs.sort_values(by="category")
-    print(jobs.head(10))
-    print(f"\N{goat}")
+    mask = filter(jobs)
+    jobs = jobs[mask]
+    jobs = jobs.sort_values("category", ignore_index=True)
+    categories = jobs["category"].drop_duplicates()
+
+    with pd.ExcelWriter('jobs.xlsx', engine="xlsxwriter") as writer:
+        categories.to_excel(writer,sheet_name="categories", index=False)
+        writer.sheets["categories"].autofit()
+        for cat in categories:
+            sheetname = INVALID_TITLE_REGEX.sub(' ', cat)[:31]
+            df = jobs[jobs["category"] == cat][["title","company","url"]]
+            df.to_excel(writer, sheet_name=sheetname, index=False)
+            writer.sheets[sheetname].autofit()
