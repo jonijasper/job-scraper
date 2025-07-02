@@ -1,3 +1,8 @@
+# main.py
+# v0.1
+"""
+Find, filter and organize open job positions
+"""
 import datetime
 import pandas as pd
 import random
