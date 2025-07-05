@@ -4,6 +4,7 @@
 Find, filter and organize open job positions
 """
 import datetime
+from pandas.errors import EmptyDataError
 import random
 import sys
 import time
@@ -17,9 +18,15 @@ try:
 except ImportError:
     HTTP_ERROR_CODES = None
 
+
+REFRESH = True
+IDCOLUMN = "slug"
+DATETIME_FORMAT = "%y%m%d_%H%M%S"
+XLSXFILE = "jobs.xlsx"
 CSVFILE = "jobs.csv"
 CSVCOMMENT = '#'
 PAGE = "https://duunitori.fi/tyopaikat/alue/jyvaskyla?order_by=date_posted"
+
 
 def xprint(msg: str, level: str="INFO", logfile: str=None):
     """ Autoformat info, warning, error, etc. messages.
@@ -93,12 +100,13 @@ def pagesource(url: str) -> str:
 
     return page
 
-def search_jobs(maxpages: int):
+def search_jobs(maxpages: int, oldjobs=None):
     """Uses html parser to extract job info from page source and saves the
     results to csv-file.
     ---
     """
-    updated = datetime.date.today()
+    utime = datetime.datetime.now()
+    updated = utime.strftime(DATETIME_FORMAT)
     xprint(f"Writing results to {CSVFILE}.")
     with open(CSVFILE, 'w') as f:
         f.write(f"{CSVCOMMENT}Updated,{updated}\n")
@@ -110,7 +118,15 @@ def search_jobs(maxpages: int):
         html_src = pagesource(url)
         parser.feed(html_src)
         jobs = JobsDataFrame(parser.alljobs)
-        jobs.to_csv(CSVFILE, mode='a', index=False, header=(i==0))
+        if oldjobs is not None:
+            isnew = ~jobs[IDCOLUMN].str.lower().isin(oldjobs[IDCOLUMN])
+            jobs = jobs[isnew]
+
+        if jobs.empty:
+            xprint(f"Now new jobs.")
+            break
+        else:
+            jobs.to_csv(CSVFILE, mode='a', index=False, header=(i==0))
 
         i+=1
         if i < maxpages:
@@ -123,15 +139,34 @@ def search_jobs(maxpages: int):
         xprint(f"Page {i}/{maxpages} done.")
     
     parser.close()
+    if oldjobs is not None:
+        oldjobs.to_csv(CSVFILE, mode='a', index=False, header=(i==0))
+
+    return (i != 0)
     
 
 def get_jobs(*args, refresh: bool=False, maxpages: int=30, **kwargs):
+    try:
+        oldjobs = JobsDataFrame.from_csv(*args, comment=CSVCOMMENT, **kwargs)
+    except EmptyDataError:
+        oldjobs = None
+
     if refresh:
-        search_jobs(maxpages)
-    
-    return JobsDataFrame.from_csv(*args, comment=CSVCOMMENT, **kwargs)
+        newjobs = search_jobs(maxpages, oldjobs)
+        jobs = JobsDataFrame.from_csv(*args, comment=CSVCOMMENT, **kwargs)
+        if newjobs:
+            jobs.spread(XLSXFILE)
+
+    else:
+        if oldjobs is not None:
+            jobs = oldjobs
+        else:
+            xprint("All jobs are gone. Try setting REFRESH=True", level="WARNING") 
+            return   
+
+    return jobs
 
 
 if __name__ == "__main__":
-    jobs = get_jobs(CSVFILE, refresh=True)
-    jobs.spread("jobs.xlsx")
+    newjobs = get_jobs(CSVFILE, refresh=REFRESH)
+
