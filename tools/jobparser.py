@@ -4,20 +4,34 @@ from html.parser import HTMLParser
 
 class JobParser(HTMLParser):
     # for matching and translating attribute names
-    JOBINFO = { "data-job-slug": "title",
+    JOBINFO = { "a": "posted",
+                "b": "title",
                 "data-category": "category", 
                 "data-company": "company", 
-                "href": "url"}
+                "href": "url",
+                "data-job-slug": "slug"
+}
     # for matching relevant tags and attributes
-    JOB_TAG = "a"
-    JOB_ATTR = ("class", "job-box__hover gtm-search-result")
-    NEXT_TAG = "link"
-    NEXT_ATTR = ("rel", "next")
+    JOB_ATTR = {"a": ("class", "job-box__hover gtm-search-result")}
+    TITLE_ATTR = {"h3": ("class", "job-box__title")}
+    DATE_ATTR = {"span": ("class", "job-box__job-posted")}
+    NEXT_ATTR = {"link": ("rel", "next")}
     
     def __init__(self):
         HTMLParser.__init__(self)
         self.alljobs = {value: [] for value in self.JOBINFO.values()}
         self.nextpage = None
+        self.currentjob = None
+        self.titleopen = False
+        self.dateopen = False
+
+    def _jobdone(self):
+        # add job to list
+        for key,value in self.currentjob.items():
+            self.alljobs[key].append(value)
+        self.titleopen = False
+        self.dateopen = False
+        self.currentjob = None
 
     def reset_(self):
         self.alljobs = {value: [] for value in self.JOBINFO.values()}
@@ -25,26 +39,45 @@ class JobParser(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         # tags containing job information
-        if tag == self.JOB_TAG and self.JOB_ATTR in attrs:
-            job = {key: "" for key in self.alljobs.keys()}
+        if tag in self.JOB_ATTR and self.JOB_ATTR[tag] in attrs:
+            if self.currentjob:
+                self._jobdone()
+
+            self.currentjob = {key: "" for key in self.alljobs.keys()}
             # specs are in tag attributes:
             for attr,value in attrs:
                 if attr in self.JOBINFO:
-                    job[self.JOBINFO[attr]] = value
-            
-            # data-job-slug="job-title-foobar-12345"
-            title = job["title"].split('-')
-            job["title"] = " ".join(title[:-2])
+                    self.currentjob[self.JOBINFO[attr]] = value
 
             # href="/tyopaikat/tyo/...."
-            job["url"] = "https://duunitori.fi" + job["url"]
+            self.currentjob["url"] = "https://duunitori.fi" + self.currentjob["url"]
 
-            # add job to list
-            for key,value in job.items():
-                self.alljobs[key].append(value)
+        elif self.currentjob:
+            if tag in self.TITLE_ATTR and self.TITLE_ATTR[tag] in attrs:
+                self.titleopen = True
+
+            elif tag in self.DATE_ATTR and self.DATE_ATTR[tag] in attrs:
+                self.dateopen = True
 
         # tag containing link to the next page
-        elif tag == self.NEXT_TAG and self.NEXT_ATTR in attrs:
+        elif tag in self.NEXT_ATTR and self.NEXT_ATTR[tag] in attrs:
+            if self.currentjob:
+                self._jobdone()
+
             for attr,value in attrs:
                 if attr == "href":
                     self.nextpage = value
+                    return
+
+    def handle_data(self, data):
+        if self.currentjob:
+            if self.titleopen:
+                self.currentjob["title"] = data
+                self.titleopen = False
+                
+            elif self.dateopen:
+                self.currentjob["posted"] = data.split()[-1]
+                self.dateopen = False
+
+                self._jobdone()
+
