@@ -4,17 +4,22 @@
 Find, filter and organize open job positions
 """
 import datetime
-import pandas as pd
 import random
 import sys
 import time
 import urllib.error
 import urllib.request
 
-from openpyxl.workbook.child import INVALID_TITLE_REGEX
-
 from tools.jobparser import JobParser
+from tools.jobsdataframe import JobsDataFrame
+try:
+    from tools.httperrcodes import HTTP_ERROR_CODES
+except ImportError:
+    HTTP_ERROR_CODES = None
 
+CSVFILE = "jobs.csv"
+CSVCOMMENT = '#'
+PAGE = "https://duunitori.fi/tyopaikat/alue/jyvaskyla?order_by=date_posted"
 
 def xprint(msg: str, level: str="INFO", logfile: str=None):
     """ Autoformat info, warning, error, etc. messages.
@@ -55,7 +60,7 @@ def pagesource(url: str) -> str:
             page could not be reached.
 
     Example:
-        >>> pagesource("https://quotes.toscrape.com/")
+        html_src = pagesource("https://quotes.toscrape.com/")
     ---
     """
     d0 = datetime.date(2024, 4, 16)
@@ -70,87 +75,63 @@ def pagesource(url: str) -> str:
         with urllib.request.urlopen(req) as response:
             source_bytes = response.read()
 
-    except urllib.error.HTTPError as e:
-        xprint(e.reason, level="ERROR (HTTP)")
-        return ""
-
     except urllib.error.URLError as e:
-        xprint(e.reason, level="ERROR (Connection)")
-        return ""
+        err = f"{e.reason}"
+        if hasattr(e, 'code'):
+            err = f"{e.code} " + err
+            if HTTP_ERROR_CODES:
+                _, desc = HTTP_ERROR_CODES[e.code]
+                if desc:
+                    err += f"\n\t{desc}."
 
-    page = source_bytes.decode('utf-8', 'replace')
+        xprint(err, level="ERROR")
+        xprint(url, level="PAGE")
+        page = ""
+    
+    else:
+        page = source_bytes.decode('utf-8', 'replace')
 
     return page
 
-def jobhandler() -> pd.DataFrame:
-    """Uses html parser to extract job info from page source.
-    
-    Returns:
-        pandas.DataFrame: Job details.
+def search_jobs(maxpages: int):
+    """Uses html parser to extract job info from page source and saves the
+    results to csv-file.
     ---
     """
+    updated = datetime.date.today()
+    xprint(f"Writing results to {CSVFILE}.")
+    with open(CSVFILE, 'w') as f:
+        f.write(f"{CSVCOMMENT}Updated,{updated}\n")
+
     parser = JobParser()
-    url = "https://duunitori.fi/tyopaikat/alue/jyvaskyla?order_by=date_posted"
-    MAXPAGES = 30
+    url = PAGE
     i=0
     while url:
         html_src = pagesource(url)
         parser.feed(html_src)
-        url = parser.nextpage
-        parser.nextpage = None
+        jobs = JobsDataFrame(parser.alljobs)
+        jobs.to_csv(CSVFILE, mode='a', index=False, header=(i==0))
 
         i+=1
-        if i < MAXPAGES:
-            r = abs(random.gauss(mu=0, sigma=4))
-            t = min(10, r)
-            time.sleep(1 + t)
+        if i < maxpages:
+            url = parser.nextpage
+            parser.reset_()
+            time.sleep(3)
         else:
             url=None
-            
-    jobs = pd.DataFrame(parser.alljobs)
+
+        xprint(f"Page {i}/{maxpages} done.")
+    
     parser.close()
-
-    return jobs
-
-def refresh_results():
-    jobs = jobhandler()
-    jobs.to_csv("jobs.csv", index=False)
-
-def get_blacklist() -> dict:
-    blacklist = {}
-    with open(".blacklist.dat", 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith('#'):
-                name = line[1:]
-                blacklist[name] = set()
-            elif line:
-                blacklist[name].add(line.lower())
-
-    return blacklist
-
-def filter(df: pd.DataFrame):
-    blacklist = get_blacklist()
-    x = ~df["category"].str.lower().isin(blacklist["categories"])
-    y = ~df["company"].str.lower().isin(blacklist["companies"])
-    mask = x & y
-
-    return mask
     
 
-if __name__ == "__main__":
-    # refresh_results()
-    jobs = pd.read_csv("jobs.csv")
-    mask = filter(jobs)
-    jobs = jobs[mask]
-    jobs = jobs.sort_values("category", ignore_index=True)
-    categories = jobs["category"].drop_duplicates()
+def get_jobs(*args, refresh: bool=False, maxpages: int=30, **kwargs):
+    if refresh:
+        search_jobs(maxpages)
+    
+    return JobsDataFrame.from_csv(*args, comment=CSVCOMMENT, **kwargs)
 
-    with pd.ExcelWriter('jobs.xlsx', engine="xlsxwriter") as writer:
-        categories.to_excel(writer,sheet_name="categories", index=False)
-        writer.sheets["categories"].autofit()
-        for cat in categories:
-            sheetname = INVALID_TITLE_REGEX.sub(' ', cat)[:31]
-            df = jobs[jobs["category"] == cat][["title","company","url"]]
-            df.to_excel(writer, sheet_name=sheetname, index=False)
-            writer.sheets[sheetname].autofit()
+
+if __name__ == "__main__":
+    jobs = get_jobs(CSVFILE, refresh=True)
+    jobs.spread("jobs.xlsx")

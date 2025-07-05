@@ -19,6 +19,10 @@ class JobParser(HTMLParser):
         self.alljobs = {value: [] for value in self.JOBINFO.values()}
         self.nextpage = None
 
+    def reset_(self):
+        self.alljobs = {value: [] for value in self.JOBINFO.values()}
+        self.nextpage = None
+
     def handle_starttag(self, tag, attrs):
         # tags containing job information
         if tag == self.JOB_TAG and self.JOB_ATTR in attrs:
