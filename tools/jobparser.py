@@ -4,14 +4,14 @@ from html.parser import HTMLParser
 
 class JobParser(HTMLParser):
     # for matching and translating attribute names
-    JOBINFO = { "a": "posted",
-                "b": "title",
+    JOBINFO = { "date": "posted",
+                "title": "title",
                 "data-category": "category", 
                 "data-company": "company", 
                 "href": "url",
                 "data-job-slug": "slug"
 }
-    # for matching relevant tags and attributes
+    # for matching relevant tags and attributes {tag: (attr, value)}
     JOB_ATTR = {"a": ("class", "job-box__hover gtm-search-result")}
     TITLE_ATTR = {"h3": ("class", "job-box__title")}
     DATE_ATTR = {"span": ("class", "job-box__job-posted")}
@@ -40,17 +40,17 @@ class JobParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         # tags containing job information
         if tag in self.JOB_ATTR and self.JOB_ATTR[tag] in attrs:
-            if self.currentjob:
+            if self.currentjob: # make sure previous is added to the list
                 self._jobdone()
 
             self.currentjob = {key: "" for key in self.alljobs.keys()}
             # specs are in tag attributes:
             for attr,value in attrs:
                 if attr in self.JOBINFO:
-                    self.currentjob[self.JOBINFO[attr]] = value
+                    if attr == "href":  # value="/tyopaikat/tyo/...."
+                        value = "https://duunitori.fi" + value
 
-            # href="/tyopaikat/tyo/...."
-            self.currentjob["url"] = "https://duunitori.fi" + self.currentjob["url"]
+                    self.currentjob[self.JOBINFO[attr]] = value
 
         elif self.currentjob:
             if tag in self.TITLE_ATTR and self.TITLE_ATTR[tag] in attrs:
@@ -61,7 +61,7 @@ class JobParser(HTMLParser):
 
         # tag containing link to the next page
         elif tag in self.NEXT_ATTR and self.NEXT_ATTR[tag] in attrs:
-            if self.currentjob:
+            if self.currentjob: # make sure the last job is added to the list
                 self._jobdone()
 
             for attr,value in attrs:
@@ -72,12 +72,12 @@ class JobParser(HTMLParser):
     def handle_data(self, data):
         if self.currentjob:
             if self.titleopen:
-                self.currentjob["title"] = data
+                self.currentjob[self.JOBINFO["title"]] = data
                 self.titleopen = False
                 
             elif self.dateopen:
-                self.currentjob["posted"] = data.split()[-1]
+                self.currentjob[self.JOBINFO["date"]] = data.split()[-1]
                 self.dateopen = False
 
-                self._jobdone()
+                self._jobdone() # last job info
 
