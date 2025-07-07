@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.request
 
+from options import *
 from tools.jobparser import JobParser
 from tools.jobsdataframe import JobsDataFrame
 try:
@@ -19,30 +20,30 @@ except ImportError:
     HTTP_ERROR_CODES = None
 
 
-REFRESH = True
-IDCOLUMN = "slug"
-DATETIME_FORMAT = "%y%m%d_%H%M%S"
-XLSXFILE = "jobs.xlsx"
-CSVFILE = "jobs.csv"
-CSVCOMMENT = '#'
-PAGE = "https://duunitori.fi/tyopaikat/alue/jyvaskyla?order_by=date_posted"
+def xprint(msg: str, level: str="INFO", *, logfile: str=None, **kwargs):
+    """Autoformat `info`,`warning`,`error`, etc. messages.
 
+    Parameters
+    ----------
+    msg : A string containing the message.
+    level : Prefix for the message. Defaults to "INFO".
+    logfile : `Path` to a writeable file. If provided, the message is also 
+        written to the file.
+    **kwargs
+        Additional keyword arguments. Passed to `print`.
 
-def xprint(msg: str, level: str="INFO", logfile: str=None):
-    """ Autoformat info, warning, error, etc. messages.
+    .. note:: INFO -level (default) messages are directed to `stdout`, 
+        others to `stderr`.
 
-    INFO -level (default) messages are directed to stdout, others to stderr.
-    
-    Message format:
+    Examples
+    --------
 
-        *** level: msg
-
-    Args:
-        msg: A string containing the message.
-        level (optional): Prefix for the message. Defaults to "INFO".
-        logfile (optional): Path to file. If provided, the message is also
-            written to the file.
-    ---        
+        >>> xprint("foobar")
+        *** INFO: foobar    # to stdout
+        
+        >>> xprint("foobar", "WARNING")
+        *** WARNING: foobar     # to stderr
+    ---
     """
     if level == "INFO":
         stream = sys.stdout
@@ -50,7 +51,7 @@ def xprint(msg: str, level: str="INFO", logfile: str=None):
         stream = sys.stderr
 
     fmsg = f"*** {level}: {msg}"
-    print(fmsg, file=stream)
+    print(fmsg, file=stream, **kwargs)
 
     if logfile:
         with open(logfile, 'a') as f:
@@ -59,15 +60,26 @@ def xprint(msg: str, level: str="INFO", logfile: str=None):
 def pagesource(url: str) -> str:
     """Read page source from url
 
-    Args:
-        url: Page url as string.
+    Parameters
+    ----------
+    url : Page url as string.
 
-    Returns:
-        str: A string containing the page source code, or empty string, if the
-            page could not be reached.
+    Returns
+    -------
+    `str`
+        A string containing the page source code, or empty string, if the
+        page could not be reached.
 
-    Example:
-        html_src = pagesource("https://quotes.toscrape.com/")
+    Examples
+    --------
+
+        >>> html_src = pagesource("https://quotes.toscrape.com/")
+        >>> print(html_src[:100])
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+                <meta charset="UTF-8">
+                <title>Quotes to Scrape</title>
     ---
     """
     d0 = datetime.date(2024, 4, 16)
@@ -101,8 +113,21 @@ def pagesource(url: str) -> str:
     return page
 
 def search_jobs(maxpages: int, oldjobs=None):
-    """Uses html parser to extract job info from page source and saves the
-    results to csv-file.
+    """Uses html parser `tools.jobparser.JobParser` to extract job info from 
+    page source and saves the results to csv-file specified on `options.CSVFILE`.
+
+    Parameters
+    ----------
+    maxpages : restrict the number of pages to search
+    oldjobs : `DataFrame` containing previously listed jobs
+
+    .. note:: 
+        Also uses parameters set in `options`:
+        - `options.CSVFILE`
+        - `options.DATETIME_FORMAT`
+        - `options.CSVCOMMENT`
+        - `options.IDCOLUMN`
+
     ---
     """
     utime = datetime.datetime.now()
@@ -145,15 +170,27 @@ def search_jobs(maxpages: int, oldjobs=None):
     return (i != 0)
     
 
-def get_jobs(*args, refresh: bool=False, maxpages: int=30, **kwargs):
+def get_jobs(path, refresh: bool=False, maxpages: int=30, *args, **kwargs):
+    """Reads joblistings from csv and makes a spreadsheet.
+    
+    Parameters
+    ----------
+    refresh : If `True` checks for new jobs
+    maxpages : Restrict the number of pages to search
+    *args
+        Additional arguments passed to `tools.jobsdataframe.JobsDataFrame.from_csv`
+    **kwargs
+        Additional keyword arguments passed to `tools.jobsdataframe.JobsDataFrame.from_csv`
+    ---
+    """
     try:
-        oldjobs = JobsDataFrame.from_csv(*args, comment=CSVCOMMENT, **kwargs)
+        oldjobs = JobsDataFrame.from_csv(path, *args, comment=CSVCOMMENT, **kwargs)
     except EmptyDataError:
         oldjobs = None
 
     if refresh:
         newjobs = search_jobs(maxpages, oldjobs)
-        jobs = JobsDataFrame.from_csv(*args, comment=CSVCOMMENT, **kwargs)
+        jobs = JobsDataFrame.from_csv(path, *args, comment=CSVCOMMENT, **kwargs)
         if newjobs:
             jobs.spread(XLSXFILE)
 
